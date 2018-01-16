@@ -12,6 +12,7 @@
 #include <fstream>
 #include <math.h>
 #include <vector>
+#include <tuple>
 #include "map.h"
 
 // for portability of M_PI (Vis Studio, MinGW, etc.)
@@ -23,30 +24,28 @@ const double M_PI = 3.14159265358979323846;
  * Struct representing one position/control measurement.
  */
 struct control_s {
-	
-	double velocity;	// Velocity [m/s]
-	double yawrate;		// Yaw rate [rad/s]
+  double velocity;	// Velocity [m/s]
+  double yawrate;		// Yaw rate [rad/s]
 };
 
 /*
  * Struct representing one ground truth position.
  */
 struct ground_truth {
-	
-	double x;		// Global vehicle x position [m]
-	double y;		// Global vehicle y position
-	double theta;	// Global vehicle yaw [rad]
+  double x;		// Global vehicle x position [m]
+  double y;		// Global vehicle y position
+  double theta;	// Global vehicle yaw [rad]
 };
 
 /*
  * Struct representing one landmark observation measurement.
  */
 struct LandmarkObs {
-	
-	int id;				// Id of matching landmark in the map.
-	double x;			// Local (vehicle coordinates) x position of landmark observation [m]
-	double y;			// Local (vehicle coordinates) y position of landmark observation [m]
+  int id;				// Id of matching landmark in the map.
+  double x;			// Local (vehicle coordinates) x position of landmark observation [m]
+  double y;			// Local (vehicle coordinates) y position of landmark observation [m]
 };
+
 
 /*
  * Computes the Euclidean distance between two 2D points.
@@ -54,20 +53,27 @@ struct LandmarkObs {
  * @param (x2,y2) x and y coordinates of second point
  * @output Euclidean distance between two 2D points
  */
-inline double dist(double x1, double y1, double x2, double y2) {
-	return sqrt((x2 - x1) * (x2 - x1) + (y2 - y1) * (y2 - y1));
+inline double squaredDist(double x1, double y1, double x2, double y2) {
+  return (x2 - x1) * (x2 - x1) + (y2 - y1) * (y2 - y1);
 }
 
 inline double * getError(double gt_x, double gt_y, double gt_theta, double pf_x, double pf_y, double pf_theta) {
-	static double error[3];
-	error[0] = fabs(pf_x - gt_x);
-	error[1] = fabs(pf_y - gt_y);
-	error[2] = fabs(pf_theta - gt_theta);
-	error[2] = fmod(error[2], 2.0 * M_PI);
-	if (error[2] > M_PI) {
-		error[2] = 2.0 * M_PI - error[2];
-	}
-	return error;
+  static double error[3];
+  error[0] = fabs(pf_x - gt_x);
+  error[1] = fabs(pf_y - gt_y);
+  error[2] = fabs(pf_theta - gt_theta);
+  error[2] = fmod(error[2], 2.0 * M_PI);
+  if (error[2] > M_PI) {
+    error[2] = 2.0 * M_PI - error[2];
+  }
+  return error;
+}
+
+inline std::tuple<int,int> hash(float x,float y) {
+  double cellsize = 10.0;
+  int xhash = int(floor(x/cellsize));
+  int yhash = int(floor(y/cellsize));
+  return std::make_tuple(xhash,yhash);
 }
 
 /* Reads map data from a file.
@@ -76,43 +82,110 @@ inline double * getError(double gt_x, double gt_y, double gt_theta, double pf_x,
  */
 inline bool read_map_data(std::string filename, Map& map) {
 
-	// Get file of map:
-	std::ifstream in_file_map(filename.c_str(),std::ifstream::in);
-	// Return if we can't open the file.
-	if (!in_file_map) {
-		return false;
-	}
+  // Get file of map:
+  std::ifstream in_file_map(filename.c_str(),std::ifstream::in);
+  // Return if we can't open the file.
+  if (!in_file_map) {
+    return false;
+  }
 	
-	// Declare single line of map file:
-	std::string line_map;
+  // Declare single line of map file:
+  std::string line_map;
 
-	// Run over each single line:
-	while(getline(in_file_map, line_map)){
+  // Run over each single line:
+  while(getline(in_file_map, line_map)){
 
-		std::istringstream iss_map(line_map);
+    std::istringstream iss_map(line_map);
 
-		// Declare landmark values and ID:
-		float landmark_x_f, landmark_y_f;
-		int id_i;
+    // Declare landmark values and ID:
+    float landmark_x_f, landmark_y_f;
+    int id_i;
 
-		// Read data from current line to values::
-		iss_map >> landmark_x_f;
-		iss_map >> landmark_y_f;
-		iss_map >> id_i;
+    // Read data from current line to values::
+    iss_map >> landmark_x_f;
+    iss_map >> landmark_y_f;
+    iss_map >> id_i;
+    id_i--;
+    
+    // Declare single_landmark:
+    Map::single_landmark_s single_landmark_temp;
+    
+    // Set values
+    single_landmark_temp.id_i = id_i;
+    single_landmark_temp.x_f  = landmark_x_f;
+    single_landmark_temp.y_f  = landmark_y_f;
 
-		// Declare single_landmark:
-		Map::single_landmark_s single_landmark_temp;
-
-		// Set values
-		single_landmark_temp.id_i = id_i;
-		single_landmark_temp.x_f  = landmark_x_f;
-		single_landmark_temp.y_f  = landmark_y_f;
-
-		// Add to landmark list of map:
-		map.landmark_list.push_back(single_landmark_temp);
-	}
-	return true;
+    // Add to landmark list of map:
+    map.landmark_list.push_back(single_landmark_temp);
+    int xhash,yhash;
+    std::tie(xhash,yhash) = hash(landmark_x_f,landmark_y_f);
+    for(int ix=xhash-1;ix<xhash+2;ix++)
+      for(int iy=yhash-1;iy<yhash+2;iy++) 
+	map.landmark_hash[std::make_tuple(ix,iy)].push_back(id_i);
+  }
+  int total_entries = 0;
+  std::map<int,int> counts;
+  for(auto x:map.landmark_hash) {
+    total_entries += x.second.size();
+    counts[x.second.size()]+=1;
+  }
+  std::cout<<" total_entries : "<<total_entries<<" num_landmarks : "<<map.landmark_list.size()<<std::endl;
+  for(auto x:counts) {
+    std::cout<<" count "<<x.first<<" num : "<<x.second<<std::endl;
+  }
+  return true;
 }
+
+inline std::tuple<int,double> matchLandmarkNaive(float x,float y,Map& m) {
+  double minSqrdDist = 9999999999999.0;
+  int closestLandmarkId = -1;
+  for(auto &l : m.landmark_list) {
+    double d = squaredDist(l.x_f,l.y_f,x,y);
+    if(d<minSqrdDist) {
+      minSqrdDist = d;
+      closestLandmarkId = l.id_i;
+    }
+  }
+  return std::make_tuple(closestLandmarkId,minSqrdDist);
+}
+
+static std::map<int,int> countsMatchLandmark;
+inline std::tuple<int,double> matchLandmark(float x,float y,Map& m) {
+  auto h = hash(x,y);
+  const auto& landmarkIds = m.landmark_hash[h];
+  countsMatchLandmark[landmarkIds.size()]+=1;
+  double minSqrdDist = 9999999999.0;
+  std::cout<<" lids :";
+  int closestLandmarkId = -1;
+  for(int lid : landmarkIds) {
+    std::cout<<" "<<lid;
+    Map::single_landmark_s& l = m.landmark_list[lid];
+    if(l.id_i!=lid) {
+      std::cout<<" l.id_i : "<<l.id_i<<" lid : "<<lid<<std::endl;
+      throw("error");
+    }
+      
+    double d = squaredDist(l.x_f,l.y_f,x,y);
+    if(d<minSqrdDist) {
+      minSqrdDist = d;
+      closestLandmarkId = l.id_i;
+    }
+  }
+  std::cout<<std::endl;
+  if(true) {
+    int id;
+    double dist;
+    std::tie(id,dist) = matchLandmarkNaive(x,y,m);
+    if((id != closestLandmarkId) || fabs(dist-minSqrdDist)>0.01) {
+      std::cout<<" x : "<<x<<" y : "<<y<<" hash : "<<std::get<0>(h)<<" "<<std::get<1>(h)<<std::endl;
+      std::cout<<" naive match : "<<m.landmark_list[id].x_f<<" "<<m.landmark_list[id].y_f<<std::endl;
+      std::cout<<" naiveid : "<<id<<" closestLandmarkId : "<<closestLandmarkId<<" naivedist : "<<dist<<" smartdist : "<<minSqrdDist<<std::endl;
+      throw("error ");
+    }
+  }
+  return std::make_tuple(closestLandmarkId,minSqrdDist);
+}
+
 
 /* Reads control data from a file.
  * @param filename Name of file containing control measurements.
@@ -120,41 +193,41 @@ inline bool read_map_data(std::string filename, Map& map) {
  */
 inline bool read_control_data(std::string filename, std::vector<control_s>& position_meas) {
 
-	// Get file of position measurements:
-	std::ifstream in_file_pos(filename.c_str(),std::ifstream::in);
-	// Return if we can't open the file.
-	if (!in_file_pos) {
-		return false;
-	}
+  // Get file of position measurements:
+  std::ifstream in_file_pos(filename.c_str(),std::ifstream::in);
+  // Return if we can't open the file.
+  if (!in_file_pos) {
+    return false;
+  }
 
-	// Declare single line of position measurement file:
-	std::string line_pos;
+  // Declare single line of position measurement file:
+  std::string line_pos;
 
-	// Run over each single line:
-	while(getline(in_file_pos, line_pos)){
+  // Run over each single line:
+  while(getline(in_file_pos, line_pos)){
 
-		std::istringstream iss_pos(line_pos);
+    std::istringstream iss_pos(line_pos);
 
-		// Declare position values:
-		double velocity, yawrate;
+    // Declare position values:
+    double velocity, yawrate;
 
-		// Declare single control measurement:
-		control_s meas;
+    // Declare single control measurement:
+    control_s meas;
 
-		//read data from line to values:
+    //read data from line to values:
 
-		iss_pos >> velocity;
-		iss_pos >> yawrate;
+    iss_pos >> velocity;
+    iss_pos >> yawrate;
 
 		
-		// Set values
-		meas.velocity = velocity;
-		meas.yawrate = yawrate;
+    // Set values
+    meas.velocity = velocity;
+    meas.yawrate = yawrate;
 
-		// Add to list of control measurements:
-		position_meas.push_back(meas);
-	}
-	return true;
+    // Add to list of control measurements:
+    position_meas.push_back(meas);
+  }
+  return true;
 }
 
 /* Reads ground truth data from a file.
@@ -163,41 +236,41 @@ inline bool read_control_data(std::string filename, std::vector<control_s>& posi
  */
 inline bool read_gt_data(std::string filename, std::vector<ground_truth>& gt) {
 
-	// Get file of position measurements:
-	std::ifstream in_file_pos(filename.c_str(),std::ifstream::in);
-	// Return if we can't open the file.
-	if (!in_file_pos) {
-		return false;
-	}
+  // Get file of position measurements:
+  std::ifstream in_file_pos(filename.c_str(),std::ifstream::in);
+  // Return if we can't open the file.
+  if (!in_file_pos) {
+    return false;
+  }
 
-	// Declare single line of position measurement file:
-	std::string line_pos;
+  // Declare single line of position measurement file:
+  std::string line_pos;
 
-	// Run over each single line:
-	while(getline(in_file_pos, line_pos)){
+  // Run over each single line:
+  while(getline(in_file_pos, line_pos)){
 
-		std::istringstream iss_pos(line_pos);
+    std::istringstream iss_pos(line_pos);
 
-		// Declare position values:
-		double x, y, azimuth;
+    // Declare position values:
+    double x, y, azimuth;
 
-		// Declare single ground truth:
-		ground_truth single_gt; 
+    // Declare single ground truth:
+    ground_truth single_gt; 
 
-		//read data from line to values:
-		iss_pos >> x;
-		iss_pos >> y;
-		iss_pos >> azimuth;
+    //read data from line to values:
+    iss_pos >> x;
+    iss_pos >> y;
+    iss_pos >> azimuth;
 
-		// Set values
-		single_gt.x = x;
-		single_gt.y = y;
-		single_gt.theta = azimuth;
+    // Set values
+    single_gt.x = x;
+    single_gt.y = y;
+    single_gt.theta = azimuth;
 
-		// Add to list of control measurements and ground truth:
-		gt.push_back(single_gt);
-	}
-	return true;
+    // Add to list of control measurements and ground truth:
+    gt.push_back(single_gt);
+  }
+  return true;
 }
 
 /* Reads landmark observation data from a file.
@@ -206,39 +279,41 @@ inline bool read_gt_data(std::string filename, std::vector<ground_truth>& gt) {
  */
 inline bool read_landmark_data(std::string filename, std::vector<LandmarkObs>& observations) {
 
-	// Get file of landmark measurements:
-	std::ifstream in_file_obs(filename.c_str(),std::ifstream::in);
-	// Return if we can't open the file.
-	if (!in_file_obs) {
-		return false;
-	}
+  // Get file of landmark measurements:
+  std::ifstream in_file_obs(filename.c_str(),std::ifstream::in);
+  // Return if we can't open the file.
+  if (!in_file_obs) {
+    return false;
+  }
 
-	// Declare single line of landmark measurement file:
-	std::string line_obs;
+  // Declare single line of landmark measurement file:
+  std::string line_obs;
 
-	// Run over each single line:
-	while(getline(in_file_obs, line_obs)){
+  // Run over each single line:
+  while(getline(in_file_obs, line_obs)){
 
-		std::istringstream iss_obs(line_obs);
+    std::istringstream iss_obs(line_obs);
 
-		// Declare position values:
-		double local_x, local_y;
+    // Declare position values:
+    double local_x, local_y;
 
-		//read data from line to values:
-		iss_obs >> local_x;
-		iss_obs >> local_y;
+    //read data from line to values:
+    iss_obs >> local_x;
+    iss_obs >> local_y;
 
-		// Declare single landmark measurement:
-		LandmarkObs meas;
+    // Declare single landmark measurement:
+    LandmarkObs meas;
 
-		// Set values
-		meas.x = local_x;
-		meas.y = local_y;
+    // Set values
+    meas.x = local_x;
+    meas.y = local_y;
+    
+    // Add to list of control measurements:
+    observations.push_back(meas);
+  }
 
-		// Add to list of control measurements:
-		observations.push_back(meas);
-	}
-	return true;
+  
+  return true;
 }
 
 #endif /* HELPER_FUNCTIONS_H_ */
