@@ -172,17 +172,6 @@ inline std::tuple<int,double> matchLandmark(float x,float y,Map& m) {
     }
   }
   std::cout<<std::endl;
-  if(true) {
-    int id;
-    double dist;
-    std::tie(id,dist) = matchLandmarkNaive(x,y,m);
-    if((id != closestLandmarkId) || fabs(dist-minSqrdDist)>0.01) {
-      std::cout<<" x : "<<x<<" y : "<<y<<" hash : "<<std::get<0>(h)<<" "<<std::get<1>(h)<<std::endl;
-      std::cout<<" naive match : "<<m.landmark_list[id].x_f<<" "<<m.landmark_list[id].y_f<<std::endl;
-      std::cout<<" naiveid : "<<id<<" closestLandmarkId : "<<closestLandmarkId<<" naivedist : "<<dist<<" smartdist : "<<minSqrdDist<<std::endl;
-      throw("error ");
-    }
-  }
   return std::make_tuple(closestLandmarkId,minSqrdDist);
 }
 
