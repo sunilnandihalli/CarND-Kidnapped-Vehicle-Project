@@ -11,6 +11,7 @@
 #include <numeric>
 #include <math.h> 
 #include <iostream>
+#include <iomanip>
 #include <sstream>
 #include <string>
 #include <iterator>
@@ -66,8 +67,27 @@ double normal_pdf(double x,double mu,double variance) {
   return ret;
 }
 
+void dumpParticles(const ParticleFilter& pf,int sid) {
+  std::ostringstream stringStream;
+  stringStream << "particles_"<<std::setfill('0')<<std::setw(5)<<sid;
+  std::ofstream fout(stringStream.str());
+  fout<<
+    "particle_id x y theta weight num_landmark_obs lid0 sx0 sy0 lid1 sx1 sy1 lid2 sx2 sy2"
+    " lid3 sx3 sy3 lid4 sx4 sy4 lid5 sx5 sy5 lid6 sx6 sy6 lid7 sx7 sy7 lid8 sx8 sy8 lid9 sx9 sy9 lid10 sx10 sy10 lid11 sx11 sy11 lid12 sx12 sy12"<<std::endl;
+  for(const Particle& p : pf.particles) {
+    fout<<p.id<<" "<<p.x<<" "<<p.y<<" "<<p.theta<<" "<<p.weight<<" "<<p.associations.size();
+    for(int i=0;i<p.associations.size();i++) {
+      fout<<" "<<p.associations[i]<<" "<<p.sense_x[i]<<" "<<p.sense_y[i];
+    }
+    for(int i=p.associations.size();i<13;i++) {
+      fout<<" -1 0.0 0.0";
+    }
+    fout<<std::endl;
+  }
+}
 void ParticleFilter::updateWeights(double sensor_range, double std_landmark[], 
 				   const std::vector<LandmarkObs> &observations, Map &map_landmarks) {
+  static int updateid = 0;
   std::cout<<" updating weights ..." <<std::endl;
   double vx = std_landmark[0]*std_landmark[0];
   double vy = std_landmark[1]*std_landmark[1];
@@ -87,7 +107,7 @@ void ParticleFilter::updateWeights(double sensor_range, double std_landmark[],
       double y = p.y + l.x*st + l.y*ct;
       double distSqrd;
       int lid;
-      std::tie(lid,distSqrd) = matchLandmarkNaive(l.x,l.y,map_landmarks);
+      std::tie(lid,distSqrd) = matchLandmarkNaive(x,y,map_landmarks);
       if(lid == -1) { 
 	p.weight = 0.0;
 	breakCount+=1;
@@ -101,11 +121,12 @@ void ParticleFilter::updateWeights(double sensor_range, double std_landmark[],
 	std::cout<<" xprob : "<<xprob <<" yprob : "<<yprob <<std::endl;
 	p.weight *= (xprob*yprob);	
 	p.associations.push_back(lid+1);
-	p.sense_x.push_back(lm.x_f);
-	p.sense_y.push_back(lm.y_f);
+	p.sense_x.push_back(x);
+	p.sense_y.push_back(y);
       }
     }
   }
+  dumpParticles(*this,updateid++);
   std::cout<<"num_particles : "<<num_particles<<" breakCount : "<<breakCount<<std::endl;
   std::cout<<" finished updating weights ..." <<std::endl;
 }
